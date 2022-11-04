@@ -26,6 +26,14 @@ contract MerkleDropMinter is IMerkleDropMinter, BaseMinter {
      */
     mapping(address => mapping(uint128 => EditionMintData)) internal _editionMintData;
 
+    /**
+     * @dev The number of mints for each account.
+     *      Maps `edition` => `mintId` => `address` => value.
+     *      We will simply store a uint256 for every account, to keep the Merkle tree
+     *      simple, so that it is compatible with 3rd party allowlist services like Lanyard.
+     */
+    mapping(address => mapping(uint128 => mapping(address => uint256))) internal _mintCounts;
+
     // =============================================================
     //                          CONSTRUCTOR
     // =============================================================
@@ -95,11 +103,10 @@ contract MerkleDropMinter is IMerkleDropMinter, BaseMinter {
         if (!valid) revert InvalidMerkleProof();
 
         unchecked {
-            // Check the additional `quantity` does not exceed the maximum mintable per account.
-            uint256 numberMinted = ISoundEditionV1(edition).numberMinted(to);
-            // Won't overflow. The total number of tokens minted in `edition` won't exceed `type(uint32).max`,
-            // and `quantity` has 32 bits.
-            if (numberMinted + quantity > data.maxMintablePerAccount) revert ExceedsMaxPerAccount();
+            // Check that the additional `quantity` does not exceed the maximum mintable per account.
+            // Won't overflow, as `maxMintablePerAccount` and `quantity` are 32 bits.
+            if ((_mintCounts[edition][mintId][to] += quantity) > data.maxMintablePerAccount)
+                revert ExceedsMaxPerAccount();
         }
 
         _mint(edition, mintId, to, quantity, affiliate);
@@ -175,6 +182,17 @@ contract MerkleDropMinter is IMerkleDropMinter, BaseMinter {
             // Will not overflow, as `price` is 96 bits, and `quantity` is 32 bits. 96 + 32 = 128.
             return uint128(uint256(_editionMintData[edition][mintId].price) * uint256(quantity));
         }
+    }
+
+    /**
+     * @inheritdoc IMerkleDropMinter
+     */
+    function mintCount(
+        address edition,
+        uint128 mintId,
+        address to
+    ) public view virtual returns (uint256) {
+        return _mintCounts[edition][mintId][to];
     }
 
     /**
